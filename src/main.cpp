@@ -84,7 +84,7 @@ std::int32_t main()
 
 	printf("\x1b[38;2;169;169;169m- \x1b[38;2;255;255;255mFound \x1b[0;38;5;139;49mlocal_player \x1b[38;2;169;169;169m@ \x1b[0;38;5;139;49m0x%llx\x1b[0m\n", game::local_player.address);
 
-	printf("\n\x1b[38;2;169;169;169m- \x1b[38;2;255;255;255mOffset \x1b[0;38;5;139;49mcache:\x1b[0m\n");
+	printf("\n\x1b[38;2;169;169;169m- \x1b[38;2;255;255;255mAddress \x1b[0;38;5;139;49mcache:\x1b[0m\n");
 	printf("\x1b[38;2;169;169;169m- - \x1b[38;2;255;255;255mbase \x1b[38;2;169;169;169m        @ \x1b[0;38;5;139;49m0x%llx\x1b[0m\n", memory->get_module_address());
 	printf("\x1b[38;2;169;169;169m- - \x1b[38;2;255;255;255mdatamodel \x1b[38;2;169;169;169m   @ \x1b[0;38;5;139;49m0x%llx\x1b[0m\n", game::datamodel.address);
 	printf("\x1b[38;2;169;169;169m- - \x1b[38;2;255;255;255mvisualengine \x1b[38;2;169;169;169m@ \x1b[0;38;5;139;49m0x%llx\x1b[0m\n", game::visengine.address);
