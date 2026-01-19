@@ -15,6 +15,10 @@
 #include <settings.h>
 #include "aimbot.h"
 
+// Static variable to store the locked target
+static cache::entity_t locked_target{};
+static bool was_aimbot_active = false;
+
 static math::vector3 normalize(const math::vector3& vec)
 {
 	float length = std::sqrt(vec.x * vec.x + vec.y * vec.y + vec.z * vec.z);
@@ -32,11 +36,11 @@ static math::vector3 cross_product(const math::vector3& vec1, const math::vector
 
 static math::matrix3 look_at_to_matrix(const math::vector3& cameraPosition, const math::vector3& targetPosition)
 {
-	math::vector3 forward = normalize(math::vector3{ 
-		targetPosition.x - cameraPosition.x, 
-		targetPosition.y - cameraPosition.y, 
-		targetPosition.z - cameraPosition.z 
-	});
+	math::vector3 forward = normalize(math::vector3{
+		targetPosition.x - cameraPosition.x,
+		targetPosition.y - cameraPosition.y,
+		targetPosition.z - cameraPosition.z
+		});
 	math::vector3 right = normalize(cross_product({ 0, 1, 0 }, forward));
 	math::vector3 up = cross_product(forward, right);
 
@@ -51,7 +55,7 @@ static math::matrix3 look_at_to_matrix(const math::vector3& cameraPosition, cons
 static rbx::part_t get_target_part(cache::entity_t& player, int aimpart)
 {
 	rbx::part_t target_part{};
-	
+
 	if (aimpart == 0)
 	{
 		auto part_it = player.parts.find("Head");
@@ -79,23 +83,23 @@ static rbx::part_t get_target_part(cache::entity_t& player, int aimpart)
 			math::vector2 cursor = { static_cast<float>(cursor_point.x), static_cast<float>(cursor_point.y) };
 			math::vector2 dimensions = game::visengine.get_dimensions();
 			math::matrix4 viewmatrix = game::visengine.get_viewmatrix();
-			
+
 			float shortest_distance = (std::numeric_limits<float>::max)();
-			
+
 			for (auto& part_pair : player.parts)
 			{
 				rbx::primitive_t prim = part_pair.second.get_primitive();
 				if (!prim.address)
 					continue;
-					
+
 				math::vector3 part_position = prim.get_position();
 				math::vector2 part_screen{};
 				if (!game::visengine.world_to_screen(part_position, part_screen, dimensions, viewmatrix))
 					continue;
-					
+
 				if (part_screen.x < 0 || part_screen.y < 0)
 					continue;
-					
+
 				float distance = std::sqrt(
 					(part_screen.x - cursor.x) * (part_screen.x - cursor.x) +
 					(part_screen.y - cursor.y) * (part_screen.y - cursor.y)
@@ -117,28 +121,40 @@ static cache::entity_t get_closest_player()
 	cache::entity_t closest_player{};
 	float shortest_distance = FLT_MAX;
 
-	POINT cursor_point;
-	GetCursorPos(&cursor_point);
 	HWND rblxWnd = FindWindowA(nullptr, "Roblox");
-	if (!rblxWnd || !ScreenToClient(rblxWnd, &cursor_point))
+	if (!rblxWnd)
 		return closest_player;
 
-	math::vector2 cursor = { static_cast<float>(cursor_point.x), static_cast<float>(cursor_point.y) };
+	math::vector2 fov_center{};
+
+	// Dynamic FOV center based on aimbot type
+	if (settings::aimbot::aim_type == 0)  // Camera mode - center of screen
+	{
+		RECT windowRect;
+		GetClientRect(rblxWnd, &windowRect);
+		fov_center = {
+			static_cast<float>((windowRect.right - windowRect.left) / 2),
+			static_cast<float>((windowRect.bottom - windowRect.top) / 2)
+		};
+	}
+	else if (settings::aimbot::aim_type == 1)  // Mouse mode - cursor position
+	{
+		POINT cursor_point;
+		GetCursorPos(&cursor_point);
+		ScreenToClient(rblxWnd, &cursor_point);
+		fov_center = { static_cast<float>(cursor_point.x), static_cast<float>(cursor_point.y) };
+	}
+
 	math::vector2 dimensions = game::visengine.get_dimensions();
 	math::matrix4 viewMatrix = game::visengine.get_viewmatrix();
 
 	std::lock_guard<std::mutex> lock(cache::mtx);
-	
+
 	for (auto& player : cache::cached_players)
 	{
 		if (player.instance.address == 0 || player.instance.address == cache::cached_local_player.instance.address)
 			continue;
 
-		POINT cursor_point_temp;
-		GetCursorPos(&cursor_point_temp);
-		HWND rblxWnd_temp = FindWindowA(nullptr, "Roblox");
-		if (rblxWnd_temp)
-			ScreenToClient(rblxWnd_temp, &cursor_point_temp);
 		rbx::part_t root_part = get_target_part(player, 1);
 		if (!root_part.address)
 			continue;
@@ -146,18 +162,24 @@ static cache::entity_t get_closest_player()
 		rbx::primitive_t primitive = root_part.get_primitive();
 		math::vector3 part_world_pos = primitive.get_position();
 		math::vector2 screen_pos{};
-		
+
 		if (!game::visengine.world_to_screen(part_world_pos, screen_pos, dimensions, viewMatrix))
 			continue;
 
-		float cursor_dist = std::sqrt(
-			(screen_pos.x - cursor.x) * (screen_pos.x - cursor.x) +
-			(screen_pos.y - cursor.y) * (screen_pos.y - cursor.y)
+		// Calculate distance from FOV center (dynamic based on mode)
+		float distance_from_center = std::sqrt(
+			(screen_pos.x - fov_center.x) * (screen_pos.x - fov_center.x) +
+			(screen_pos.y - fov_center.y) * (screen_pos.y - fov_center.y)
 		);
 
-		if (cursor_dist < shortest_distance)
+		// Only consider players within FOV radius
+		if (distance_from_center > settings::aimbot::fov)
+			continue;
+
+		// Find closest player within FOV
+		if (distance_from_center < shortest_distance)
 		{
-			shortest_distance = cursor_dist;
+			shortest_distance = distance_from_center;
 			closest_player = player;
 		}
 	}
@@ -165,12 +187,33 @@ static cache::entity_t get_closest_player()
 	return closest_player;
 }
 
+// NEW: Function to validate if locked target is still valid
+static bool is_locked_target_valid()
+{
+	if (locked_target.instance.address == 0)
+		return false;
+
+	// Check if the locked target still exists in cached players
+	std::lock_guard<std::mutex> lock(cache::mtx);
+	for (auto& player : cache::cached_players)
+	{
+		if (player.instance.address == locked_target.instance.address)
+		{
+			// Update the locked target with fresh data
+			locked_target = player;
+			return true;
+		}
+	}
+
+	return false;
+}
+
 void rbx::aimbot::run()
 {
 	for (;;)
 	{
 		Sleep(1);
-		
+
 		bool key_pressed = false;
 		if (settings::aimbot::keybind_mode == 0)
 		{
@@ -196,22 +239,52 @@ void rbx::aimbot::run()
 		{
 			key_pressed = true;
 		}
-		
-		if (!settings::aimbot::enabled || !key_pressed)
+
+		bool is_aimbot_active = settings::aimbot::enabled && key_pressed;
+
+		// NEW: If aimbot was just deactivated, clear the locked target
+		if (!is_aimbot_active && was_aimbot_active)
+		{
+			locked_target = cache::entity_t{};
+		}
+
+		was_aimbot_active = is_aimbot_active;
+
+		if (!is_aimbot_active)
 			continue;
 
 		if (!game::workspace.address)
 			continue;
 
-		cache::entity_t target = get_closest_player();
+		cache::entity_t target{};
+
+		// NEW: Sticky aim logic
+		if (settings::aimbot::sticky_aim)
+		{
+			// If we have a locked target and it's still valid, use it
+			if (is_locked_target_valid())
+			{
+				target = locked_target;
+			}
+			else
+			{
+				// No locked target or it's invalid, find a new one and lock onto it
+				target = get_closest_player();
+				if (target.instance.address != 0)
+				{
+					locked_target = target;
+				}
+			}
+		}
+		else
+		{
+			// Normal aimbot behavior - always find closest player
+			target = get_closest_player();
+			locked_target = cache::entity_t{}; // Clear locked target when sticky aim is off
+		}
+
 		if (!target.instance.address)
 			continue;
-
-		POINT cursor_point;
-		GetCursorPos(&cursor_point);
-		HWND rblxWnd = FindWindowA(nullptr, "Roblox");
-		if (rblxWnd)
-			ScreenToClient(rblxWnd, &cursor_point);
 
 		rbx::part_t target_part = get_target_part(target, settings::aimbot::aim_part);
 		if (!target_part.address)
@@ -226,12 +299,60 @@ void rbx::aimbot::run()
 
 		rbx::camera_t camera{ camera_instance.address };
 		math::vector3 camera_pos = camera.get_position();
-		math::matrix3 targetMatrix = look_at_to_matrix(camera_pos, target_pos);
-		camera.write_rotation(targetMatrix);
+
+		// Camera mode - manipulate camera rotation directly
+		if (settings::aimbot::aim_type == 0)
+		{
+			math::matrix3 targetMatrix = look_at_to_matrix(camera_pos, target_pos);
+			camera.write_rotation(targetMatrix);
+		}
+		// Mouse mode - use SendInput for hardware-level mouse movement
+		else if (settings::aimbot::aim_type == 1)
+		{
+			HWND rblxWnd = FindWindowA(nullptr, "Roblox");
+			if (!rblxWnd)
+				continue;
+
+			math::vector2 dimensions = game::visengine.get_dimensions();
+			math::matrix4 viewmatrix = game::visengine.get_viewmatrix();
+			math::vector2 screen_pos{};
+
+			if (!game::visengine.world_to_screen(target_pos, screen_pos, dimensions, viewmatrix))
+				continue;
+
+			// Get current mouse position in client space
+			POINT current_pos;
+			GetCursorPos(&current_pos);
+			ScreenToClient(rblxWnd, &current_pos);
+
+			// Calculate pixel difference
+			float delta_x = screen_pos.x - static_cast<float>(current_pos.x);
+			float delta_y = screen_pos.y - static_cast<float>(current_pos.y);
+
+			// Only move if we're not already very close (prevents jitter)
+			float distance = std::sqrt(delta_x * delta_x + delta_y * delta_y);
+			if (distance < 2.0f)
+				continue;
+
+			// Smooth the movement (move a percentage of the distance)
+			float smoothing = 0.3f;  // Adjust this value: higher = faster, lower = smoother
+			int move_x = static_cast<int>(delta_x * smoothing);
+			int move_y = static_cast<int>(delta_y * smoothing);
+
+			// Use SendInput with relative movement for smoother control
+			INPUT input = { 0 };
+			input.type = INPUT_MOUSE;
+			input.mi.dx = move_x;
+			input.mi.dy = move_y;
+			input.mi.dwFlags = MOUSEEVENTF_MOVE;
+			input.mi.time = 0;
+			input.mi.dwExtraInfo = 0;
+
+			SendInput(1, &input, sizeof(INPUT));
+		}
 	}
 }
 
 void rbx::aimbot::initialize()
 {
 }
-

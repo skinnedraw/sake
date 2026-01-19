@@ -309,17 +309,17 @@ void render_t::render_menu()
         if (ImGui::BeginTabItem("Aimbot"))
         {
             ImGui::Checkbox("Enable", &settings::aimbot::enabled);
-            
+
             ImGui::SameLine();
-            
+
             static bool aimbot_waiting_for_input = false;
             keybind aimbot_keybind_obj("aimbot");
             aimbot_keybind_obj.key = settings::aimbot::keybind;
-            
+
             std::string aimbot_keybind_text = aimbot_keybind_obj.get_key_name();
             if (aimbot_waiting_for_input)
                 aimbot_keybind_text = "[...]";
-            
+
             ImGui::PushID("aimbot_keybind");
             if (ImGui::Button(aimbot_keybind_text.c_str(), ImVec2(120, 0)))
             {
@@ -328,7 +328,7 @@ void render_t::render_menu()
                     aimbot_waiting_for_input = true;
                 }
             }
-            
+
             if (ImGui::BeginPopupContextItem("aimbot_keybind_context", ImGuiPopupFlags_MouseButtonRight))
             {
                 if (ImGui::Selectable("Hold", settings::aimbot::keybind_mode == 0))
@@ -349,7 +349,7 @@ void render_t::render_menu()
                 }
                 ImGui::EndPopup();
             }
-            
+
             if (aimbot_waiting_for_input)
             {
                 if (ImGui::GetIO().MouseClicked[0] && !ImGui::IsItemHovered())
@@ -366,19 +366,28 @@ void render_t::render_menu()
                     }
                 }
             }
-            
+
             ImGui::PopID();
-            
+
             ImGui::Spacing();
-            
+
+            const char* aimbot_types[] = { "Camera", "Mouse" };
+            ImGui::Combo("Type", &settings::aimbot::aim_type, aimbot_types, IM_ARRAYSIZE(aimbot_types));
+
+            ImGui::Spacing();
+
+            ImGui::Checkbox("Sticky Aim", &settings::aimbot::sticky_aim);
+
+            ImGui::Spacing();
+
             ImGui::SliderFloat("FOV", &settings::aimbot::fov, 1.0f, 1000.0f, "%.1f");
-            
+
             ImGui::Spacing();
-            
+
             ImGui::Checkbox("Show FOV", &settings::aimbot::show_fov);
             ImGui::SameLine(ImGui::GetContentRegionAvail().x - 10.f);
             ImGui::ColorEdit4("## aimbot fov color", settings::aimbot::fov_color, ImGuiColorEditFlags_NoInputs);
-            
+
             ImGui::EndTabItem();
         }
 
@@ -508,26 +517,43 @@ void render_t::render_menu()
 void render_t::render_visuals()
 {
     esp::run();
-    
+
     if (settings::aimbot::show_fov)
     {
-        POINT cursor_point;
-        GetCursorPos(&cursor_point);
         HWND rblxWnd = FindWindowA(nullptr, "Roblox");
         if (rblxWnd)
-            ScreenToClient(rblxWnd, &cursor_point);
-        
-        ImDrawList* draw = ImGui::GetBackgroundDrawList();
-        ImVec2 center = ImVec2(static_cast<float>(cursor_point.x), static_cast<float>(cursor_point.y));
-        float radius = settings::aimbot::fov;
-        
-        ImU32 color = ImGui::ColorConvertFloat4ToU32(ImVec4(
-            settings::aimbot::fov_color[0],
-            settings::aimbot::fov_color[1],
-            settings::aimbot::fov_color[2],
-            settings::aimbot::fov_color[3]
-        ));
-        
-        draw->AddCircle(center, radius, color, 0, 2.0f);
+        {
+            ImVec2 center{};
+
+            // Dynamic FOV center based on aimbot type
+            if (settings::aimbot::aim_type == 0)  // Camera mode - center of screen
+            {
+                RECT windowRect;
+                GetClientRect(rblxWnd, &windowRect);
+                center = ImVec2(
+                    static_cast<float>((windowRect.right - windowRect.left) / 2),
+                    static_cast<float>((windowRect.bottom - windowRect.top) / 2)
+                );
+            }
+            else if (settings::aimbot::aim_type == 1)  // Mouse mode - cursor position
+            {
+                POINT cursor_point;
+                GetCursorPos(&cursor_point);
+                ScreenToClient(rblxWnd, &cursor_point);
+                center = ImVec2(static_cast<float>(cursor_point.x), static_cast<float>(cursor_point.y));
+            }
+
+            float radius = settings::aimbot::fov;
+
+            ImU32 color = ImGui::ColorConvertFloat4ToU32(ImVec4(
+                settings::aimbot::fov_color[0],
+                settings::aimbot::fov_color[1],
+                settings::aimbot::fov_color[2],
+                settings::aimbot::fov_color[3]
+            ));
+
+            ImDrawList* draw = ImGui::GetBackgroundDrawList();
+            draw->AddCircle(center, radius, color, 0, 2.0f);
+        }
     }
 }
