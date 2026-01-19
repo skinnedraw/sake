@@ -380,6 +380,15 @@ void render_t::render_menu()
 
             ImGui::Spacing();
 
+            // NEW: Smoothing slider
+            ImGui::SliderFloat("Smoothing", &settings::aimbot::smoothing, 0.1f, 1.0f, "%.2f");
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Lower = smoother/slower, Higher = faster/snappier");
+            }
+
+            ImGui::Spacing();
+
             ImGui::SliderFloat("FOV", &settings::aimbot::fov, 1.0f, 1000.0f, "%.1f");
 
             ImGui::Spacing();

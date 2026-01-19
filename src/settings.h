@@ -31,6 +31,7 @@ namespace settings
 		inline bool show_fov{ false };
 		inline float fov_color[4]{ 1.f, 1.f, 1.f, 1.f };
 		inline bool sticky_aim{ false };
+		inline float smoothing{ 1.0f };  // NEW: 0.1 = very smooth, 1.0 = instant
 	}
 
 	namespace walkspeed

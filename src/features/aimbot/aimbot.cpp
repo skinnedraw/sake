@@ -187,7 +187,6 @@ static cache::entity_t get_closest_player()
 	return closest_player;
 }
 
-// NEW: Function to validate if locked target is still valid
 static bool is_locked_target_valid()
 {
 	if (locked_target.instance.address == 0)
@@ -242,7 +241,6 @@ void rbx::aimbot::run()
 
 		bool is_aimbot_active = settings::aimbot::enabled && key_pressed;
 
-		// NEW: If aimbot was just deactivated, clear the locked target
 		if (!is_aimbot_active && was_aimbot_active)
 		{
 			locked_target = cache::entity_t{};
@@ -258,17 +256,14 @@ void rbx::aimbot::run()
 
 		cache::entity_t target{};
 
-		// NEW: Sticky aim logic
 		if (settings::aimbot::sticky_aim)
 		{
-			// If we have a locked target and it's still valid, use it
 			if (is_locked_target_valid())
 			{
 				target = locked_target;
 			}
 			else
 			{
-				// No locked target or it's invalid, find a new one and lock onto it
 				target = get_closest_player();
 				if (target.instance.address != 0)
 				{
@@ -278,9 +273,8 @@ void rbx::aimbot::run()
 		}
 		else
 		{
-			// Normal aimbot behavior - always find closest player
 			target = get_closest_player();
-			locked_target = cache::entity_t{}; // Clear locked target when sticky aim is off
+			locked_target = cache::entity_t{};
 		}
 
 		if (!target.instance.address)
@@ -300,13 +294,29 @@ void rbx::aimbot::run()
 		rbx::camera_t camera{ camera_instance.address };
 		math::vector3 camera_pos = camera.get_position();
 
-		// Camera mode - manipulate camera rotation directly
+		// Calculate target rotation matrix
+		math::matrix3 target_rotation = look_at_to_matrix(camera_pos, target_pos);
+
+		// Camera mode - always use camera rotation
 		if (settings::aimbot::aim_type == 0)
 		{
-			math::matrix3 targetMatrix = look_at_to_matrix(camera_pos, target_pos);
-			camera.write_rotation(targetMatrix);
+			// Apply smoothing if enabled
+			if (settings::aimbot::smoothing < 1.0f)
+			{
+				math::matrix3 current_rotation = camera.get_rotation();
+				math::matrix3 smoothed_rotation{};
+				for (int i = 0; i < 9; i++)
+				{
+					smoothed_rotation.m[i] = current_rotation.m[i] + (target_rotation.m[i] - current_rotation.m[i]) * settings::aimbot::smoothing;
+				}
+				camera.write_rotation(smoothed_rotation);
+			}
+			else
+			{
+				camera.write_rotation(target_rotation);
+			}
 		}
-		// Mouse mode - use SendInput for hardware-level mouse movement
+		// Mouse mode - try mouse movement first, fall back to SendInput
 		else if (settings::aimbot::aim_type == 1)
 		{
 			HWND rblxWnd = FindWindowA(nullptr, "Roblox");
@@ -320,35 +330,62 @@ void rbx::aimbot::run()
 			if (!game::visengine.world_to_screen(target_pos, screen_pos, dimensions, viewmatrix))
 				continue;
 
-			// Get current mouse position in client space
+			// Get current mouse position
 			POINT current_pos;
 			GetCursorPos(&current_pos);
-			ScreenToClient(rblxWnd, &current_pos);
+			POINT client_pos = current_pos;
+			ScreenToClient(rblxWnd, &client_pos);
 
-			// Calculate pixel difference
-			float delta_x = screen_pos.x - static_cast<float>(current_pos.x);
-			float delta_y = screen_pos.y - static_cast<float>(current_pos.y);
-
-			// Only move if we're not already very close (prevents jitter)
+			// Calculate distance from target
+			float delta_x = screen_pos.x - static_cast<float>(client_pos.x);
+			float delta_y = screen_pos.y - static_cast<float>(client_pos.y);
 			float distance = std::sqrt(delta_x * delta_x + delta_y * delta_y);
+
+			// Skip if already very close
 			if (distance < 2.0f)
 				continue;
 
-			// Smooth the movement (move a percentage of the distance)
-			float smoothing = 0.3f;  // Adjust this value: higher = faster, lower = smoother
-			int move_x = static_cast<int>(delta_x * smoothing);
-			int move_y = static_cast<int>(delta_y * smoothing);
+			// Check if mouse is locked to center (first person indicator)
+			RECT windowRect;
+			GetClientRect(rblxWnd, &windowRect);
+			float center_x = static_cast<float>((windowRect.right - windowRect.left) / 2);
+			float center_y = static_cast<float>((windowRect.bottom - windowRect.top) / 2);
+			float dist_from_center = std::sqrt(
+				(client_pos.x - center_x) * (client_pos.x - center_x) +
+				(client_pos.y - center_y) * (client_pos.y - center_y)
+			);
 
-			// Use SendInput with relative movement for smoother control
-			INPUT input = { 0 };
-			input.type = INPUT_MOUSE;
-			input.mi.dx = move_x;
-			input.mi.dy = move_y;
-			input.mi.dwFlags = MOUSEEVENTF_MOVE;
-			input.mi.time = 0;
-			input.mi.dwExtraInfo = 0;
+			// If mouse is stuck at center (within 5 pixels), we're in first person
+			if (dist_from_center < 5.0f)
+			{
+				// First person - use SendInput with relative movement (works in first person!)
+				int move_x = static_cast<int>(delta_x * settings::aimbot::smoothing);
+				int move_y = static_cast<int>(delta_y * settings::aimbot::smoothing);
 
-			SendInput(1, &input, sizeof(INPUT));
+				INPUT input = { 0 };
+				input.type = INPUT_MOUSE;
+				input.mi.dx = move_x;
+				input.mi.dy = move_y;
+				input.mi.dwFlags = MOUSEEVENTF_MOVE;
+				input.mi.time = 0;
+				input.mi.dwExtraInfo = 0;
+
+				SendInput(1, &input, sizeof(INPUT));
+			}
+			else
+			{
+				// Third person - use SetCursorPos (absolute positioning works better here)
+				float move_x = delta_x * settings::aimbot::smoothing;
+				float move_y = delta_y * settings::aimbot::smoothing;
+
+				// Calculate smoothed target position in screen coordinates
+				POINT target_screen;
+				target_screen.x = static_cast<LONG>(current_pos.x + move_x);
+				target_screen.y = static_cast<LONG>(current_pos.y + move_y);
+
+				// Move mouse
+				SetCursorPos(target_screen.x, target_screen.y);
+			}
 		}
 	}
 }
