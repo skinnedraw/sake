@@ -358,9 +358,9 @@ void rbx::aimbot::run()
 			// If mouse is stuck at center (within 5 pixels), we're in first person
 			if (dist_from_center < 5.0f)
 			{
-				// First person - use SendInput with relative movement (works in first person!)
-				int move_x = static_cast<int>(delta_x * settings::aimbot::smoothing);
-				int move_y = static_cast<int>(delta_y * settings::aimbot::smoothing);
+				float smooth = settings::aimbot::smoothing * 0.35f;
+				int move_x = static_cast<int>(delta_x * smooth);
+				int move_y = static_cast<int>(delta_y * smooth);
 
 				INPUT input = { 0 };
 				input.type = INPUT_MOUSE;
