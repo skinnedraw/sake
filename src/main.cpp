@@ -82,7 +82,9 @@ std::int32_t main()
 		}
 	}
 
-	printf("\x1b[38;2;169;169;169m- \x1b[38;2;255;255;255mFound \x1b[0;38;5;139;49mlocal_player \x1b[38;2;169;169;169m@ \x1b[0;38;5;139;49m0x%llx\x1b[0m\n", game::local_player.address);
+	printf("\x1b[38;2;169;169;169m- \x1b[38;2;255;255;255mFound \x1b[0;38;5;139;49mlocal_player \x1b[38;2;169;169;169m@ \x1b[0;38;5;139;49m0x%llx\x1b[0m\n\n", game::local_player.address);
+
+	game::detect_game();
 
 	printf("\n\x1b[38;2;169;169;169m- \x1b[38;2;255;255;255mAddress \x1b[0;38;5;139;49mcache:\x1b[0m\n");
 	printf("\x1b[38;2;169;169;169m- - \x1b[38;2;255;255;255mbase \x1b[38;2;169;169;169m        @ \x1b[0;38;5;139;49m0x%llx\x1b[0m\n", memory->get_module_address());
